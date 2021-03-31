@@ -30,7 +30,7 @@ function payleo_add_bulk_invoice_order_status() {
     if ( $post_type == 'shop_order' ) {
         ?>
             <script type="text/javascript">
-                jQuery(document).ready(function() {
+                jQuery(document).ready(function() { console.log('jQuery(document).ready');
                     jQuery('<option>').val('mark_invoiced').text('<?php _e( 'Change status to invoiced', 'payleo-payments-woo' ); ?>').appendTo("select[name='action']");
                     jQuery('<option>').val('mark_invoiced').text('<?php _e( 'Change status to invoiced', 'payleo-payments-woo' ); ?>').appendTo("select[name='action2']");   
                 });

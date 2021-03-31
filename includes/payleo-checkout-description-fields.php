@@ -15,16 +15,16 @@ function techiepress_payleo_description_fields( $description, $payment_id ) {
     ob_start();
 
     echo '<div style="display: block; width:300px; height:auto;">';
-    echo '<img src="' . plugins_url('../assets/icon.png', __FILE__ ) . '">';
+    //echo '<img src="' . plugins_url('../assets/icon.png', __FILE__ ) . '">';
     
 
-    woocommerce_form_field(
+    /*woocommerce_form_field(
         'payment_number',
         array(
             'type' => 'text',
             'label' =>__( 'Payment Phone Number', 'payleo-payments-woo' ),
             'class' => array( 'form-row', 'form-row-wide' ),
-            'required' => true,
+            'required' => false,
         )
     );
 
@@ -34,14 +34,14 @@ function techiepress_payleo_description_fields( $description, $payment_id ) {
             'type' => 'select',
             'label' => __( 'Payment Network', 'payleo-payments-woo' ),
             'class' => array( 'form-row', 'form-row-wide' ),
-            'required' => true,
+            'required' => false,
             'options' => array(
                 'none' => __( 'Select Phone Network', 'payleo-payments-woo' ),
                 'mtn_mobile' => __( 'MTN Mobile Money', 'payleo-payments-woo' ),
                 'airtel_money' => __( 'Airtel Money', 'payleo-payments-woo' ),
             ),
         )
-    );
+    );*/
 
     echo '</div>';
 
@@ -51,9 +51,10 @@ function techiepress_payleo_description_fields( $description, $payment_id ) {
 }
 
 function techiepress_payleo_description_fields_validation() {
-    if( 'payleo' === $_POST['payment_method'] && ! isset( $_POST['payment_number'] )  || empty( $_POST['payment_number'] ) ) {
+    /*if( 'payleo' === $_POST['payment_method'] && ! isset( $_POST['payment_number'] )  || empty( $_POST['payment_number'] ) ) {
         wc_add_notice( 'Please enter a number that is to be billed', 'error' );
-    }
+    }*/
+
 }
 
 function techiepress_checkout_update_order_meta( $order_id ) {

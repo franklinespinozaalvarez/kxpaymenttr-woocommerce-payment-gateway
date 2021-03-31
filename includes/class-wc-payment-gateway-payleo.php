@@ -12,6 +12,8 @@
  */
 class WC_Gateway_Payleo extends WC_Payment_Gateway {
 
+	private $response;
+
 	/**
 	 * Constructor for the gateway.
 	 */
@@ -38,6 +40,193 @@ class WC_Gateway_Payleo extends WC_Payment_Gateway {
 
 		// Customer Emails.
 		add_action( 'woocommerce_email_before_order_table', array( $this, 'email_instructions' ), 10, 3 );
+
+		//add_action( 'woocommerce_review_order_after_submit', 'show_modal_for_payment' );
+		
+		//add_action( 'woocommerce_custom_order_review', array( $this, 'custom_order_review' ) );
+		//add_filter( 'woocommerce_order_button_html', 'custom_order_button_html');
+		add_action( 'woocommerce_review_order_after_submit', array( $this, 'display_paypal_button' ) );
+		add_action( 'wp_enqueue_scripts', array( $this, 'payment_scripts' ) );
+		//add_action( 'woocommerce_after_checkout_form', array( $this, 'send_before_payment' ) );
+		add_action( 'woocommerce_review_order_after_submit', array( $this, 'recuperarUrlPaymentMethod' ) );
+
+		//add_action('woocommerce_after_checkout_validation', 'after_checkout_otp_validation');
+
+        //add_action('wp_enqueue_scripts', 'ttp_scripts');
+        //add_action('woocommerce_before_checkout_form', 'ttp_wc_show_coupon_js', 10);
+        //add_action('woocommerce_before_order_notes', 'ttp_wc_show_coupon', 10);
+        add_action( 'woocommerce_checkout_after_order_review', array( $this, 'after_checkout_otp_validation' ) );
+	}
+
+	public function recuperarUrlPaymentMethod(){ //var_dump('$_POST', $_POST);exit;
+	    if ($_POST) {
+	        if ($_POST['post_data']) {
+                $decode_url = parse_str(urldecode($_POST['post_data']), $content);
+            }
+        }
+
+        //var_dump('POST',$content['billing_email'], $content['billing_phone'], $content['billing_document']);exit;
+
+	    $products = array();
+	    $totalMount    = 0;
+        $currencyCode = get_option( 'woocommerce_currency' );
+        foreach ( WC()->cart->get_cart() as $cart_item_key => $cart_item ) {
+            $product = $cart_item['data'];
+            $quantity = $cart_item['quantity'];
+            $products [] = array($product->name,$product->price*$quantity);
+            $totalMount += $product->price*$quantity;
+        }
+        /** send payment gateway RXTR**/
+        $url = 'http://devkqtest.eastus2.cloudapp.azure.com/KXPaymentTR/HostedService.svc/CreateOrder';
+        $credentials = "{6D8B0B7B-2953-41E1-A95F-AFA8795605A5}{FDACC33B-AE00-4DED-B208-D17BDEB85BC6}";
+        $data = array(
+            'Amount'                => $totalMount*100,
+            'CurrencyCode'          => $currencyCode,
+            'SystemTraceAuditNumber'=> 'XYTS20210301222658',
+            'credentials'           => $credentials,
+            'EmailShooper'          => $_POST ? ($_POST['post_data'] ? $content['billing_email'] : '') : '',
+            'AdditionalData'        => $products,
+            'IData'                 => array(
+                'client_phone_number' => $_POST ? ($_POST['post_data'] ? $content['billing_phone'] : '') : '',
+                'customer_document_number' => $_POST ? ($_POST['post_data'] ? $content['billing_document'] : '') : ''
+            )
+
+        );
+        $json_data = json_encode($data);
+        $s = curl_init();
+        curl_setopt($s, CURLOPT_URL, $url);
+        curl_setopt($s, CURLOPT_POST, true);
+        curl_setopt($s, CURLOPT_POSTFIELDS, $json_data);
+        curl_setopt($s, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($s, CURLOPT_CONNECTTIMEOUT, 20);
+        curl_setopt($s, CURLOPT_HTTPHEADER, array(
+                'Content-Type: application/json',
+                'Content-Length: ' . strlen($json_data))
+        );
+        $_out = curl_exec($s);
+        $status = curl_getinfo($s, CURLINFO_HTTP_CODE);
+        if (!$status) {
+            throw new Exception("No se pudo conectar con la Pasarela de Pago");
+        }
+        curl_close($s);
+
+        $res = json_decode($_out);
+        $this->response = $res;
+        $params = array('payment_response' => $this->response);
+        wp_localize_script( 'custom-ajax-requests', 'wc_settings', $params );
+        /** send payment gateway RXTR**/
+    }
+
+    /********************************** modificar fields ********************************************/
+    /*Coupon move checkout*/
+
+    /**
+     * Need the jQuery UI library for dialogs.
+     **/
+    function ttp_scripts() {
+        wp_enqueue_script('jquery-ui-dialog');
+    }
+
+    /**
+     * Processing before the checkout form to:
+     * 1. Hide the existing Click here link at the top of the page.
+     * 2. Instantiate the jQuery dialog with contents of
+     *    form.checkout_coupon which is in checkout/form-coupon.php.
+     * 3. Bind the Click here link to toggle the dialog.
+     **/
+    function ttp_wc_show_coupon_js() {
+        /* Hide the Have a coupon? Click here to enter your code section
+         * Note that this flashes when the page loads and then disappears.
+         * Alternatively, you can add a filter on
+         * woocommerce_checkout_coupon_message to remove the html. */
+        wc_enqueue_js('$("a.showcoupon").parent().hide();');
+
+        /* Use jQuery UI's dialog feature to load the coupon html code
+         * into the anchor div. The width controls the width of the
+         * modal dialog window. Check here for all the dialog options:
+         * http://api.jqueryui.com/dialog/ */
+        wc_enqueue_js('dialog = $("form.checkout_coupon").dialog({                                                      
+                       autoOpen: false,                                                                             
+                       width: 500,                                                                                  
+                       minHeight: 0,                                                                                
+                       modal: false,                                                                                
+                       appendTo: "#coupon-anchor",                                                                  
+                       position: { my: "left", at: "left", of: "#coupon-anchor"},                                   
+                       draggable: false,                                                                            
+                       resizable: false,                                                                            
+                       dialogClass: "coupon-special",                                                               
+                       closeText: "Close",                                                                          
+                       buttons: {}});');
+
+        /* Bind the Click here to enter coupon link to load the
+         * jQuery dialog with the coupon code. Note that this
+         * implementation is a toggle. Click on the link again
+         * and the coupon field will be hidden. This works in
+         * conjunction with the hidden close button in the
+         * optional CSS in style.css shown below. */
+        wc_enqueue_js('$("#show-coupon-form").click( function() {                                                       
+                       if (dialog.dialog("isOpen")) {                                                               
+                           $(".checkout_coupon").hide();                                                            
+                           dialog.dialog( "close" );                                                                
+                       } else {                                                                                     
+                           $(".checkout_coupon").show();                                                            
+                           dialog.dialog( "open" );                                                                 
+                       }                                                                                            
+                       return false;});');
+    }
+
+
+    /**
+     * Show a coupon link before order notes section.
+     * This is the 'coupon-anchor' div which the modal dialog
+     * window will attach to.
+     **/
+    function ttp_wc_show_coupon() {
+        global $woocommerce;
+
+        if ($woocommerce->cart->needs_payment()) {
+            echo '<p style="padding-bottom: 1.2em;"> Have a voucher? <a href="#" id="show-coupon-form">Click here to enter your code</a>.</p><div id="coupon-anchor"></div>';
+        }
+    }
+
+	function after_checkout_otp_validation( $posted ) {
+		// you can use wc_add_notice with a second parameter as "error" to stop the order from being placed
+		var_dump('despues');
+	}
+	/********************************** modificar fields ********************************************/
+
+	public function display_paypal_button(){
+
+		wp_enqueue_script(  'custom-ajax-requests' );
+		?>
+		<!--<div id="woo_button_checkout"><input type="button" value="Pasarela de Pago"/></div>-->
+		<?php
+	}
+
+	public function send_before_payment(){
+        var_dump('enviado');
+	}
+	public function payment_scripts() {
+
+        wp_enqueue_script('jquery-ui-dialog');
+		wp_register_script( 'custom-ajax-requests', plugins_url( '../assets/js/custom-ajax-requests.js', __FILE__ ), array('jquery'), '1.0', true );
+		wp_enqueue_script(  'jquery');
+		wp_enqueue_script(  'custom-ajax-requests');
+		//wp_localize_script( 'custom-ajax-requests', 'wc_ppec_context', $this->response );
+	}
+
+	function custom_order_button_html() {
+
+		// The text of the button
+		$order_button_text = __('Place order', 'woocommerce');
+
+		// HERE your Javascript Event
+		$js_event = "fbq('track', 'AddPaymentInfo');";
+
+		// HERE you make changes (Replacing the code of the button):
+		$button = '<input type="submit" onClick="'.$js_event.'" class="button alt" name="woocommerce_checkout_place_order" id="place_order" value="' . esc_attr( $order_button_text ) . '" data-value="' . esc_attr( $order_button_text ) . '" />';
+
+		return $button;
 	}
 
 	/**
@@ -45,7 +234,7 @@ class WC_Gateway_Payleo extends WC_Payment_Gateway {
 	 */
 	protected function setup_properties() {
 		$this->id                 = 'payleo';
-		$this->icon               = apply_filters( 'woocommerce_payleo_icon', plugins_url('../assets/icon.png', __FILE__ ) );
+		$this->icon               = apply_filters( 'woocommerce_payleo_icon', plugins_url('../assets/payment.jpg', __FILE__ ) );
 		$this->method_title       = __( 'Payleo Mobile Payments', 'payleo-payments-woo' );
 		$this->api_key            = __( 'Add API Key', 'payleo-payments-woo' );
 		$this->widget_id          = __( 'Add Widget ID', 'payleo-payments-woo' );
@@ -88,14 +277,14 @@ class WC_Gateway_Payleo extends WC_Payment_Gateway {
 				'title'       => __( 'Description', 'payleo-payments-woo' ),
 				'type'        => 'textarea',
 				'description' => __( 'Payleo Mobile Payment method description that the customer will see on your website.', 'payleo-payments-woo' ),
-				'default'     => __( 'Payleo Mobile Payments before delivery.', 'payleo-payments-woo' ),
+				'default'     => __( 'Pagos XRPaymentTR antes de la Entrega.', 'payleo-payments-woo' ),
 				'desc_tip'    => true,
 			),
 			'instructions'       => array(
 				'title'       => __( 'Instructions', 'payleo-payments-woo' ),
 				'type'        => 'textarea',
 				'description' => __( 'Instructions that will be added to the thank you page.', 'payleo-payments-woo' ),
-				'default'     => __( 'Payleo Mobile Payments before delivery.', 'payleo-payments-woo' ),
+				'default'     => __( 'Pagos XRPaymentTR antes de la Entrega.', 'payleo-payments-woo' ),
 				'desc_tip'    => true,
 			),
 			'enable_for_methods' => array(
@@ -316,7 +505,7 @@ class WC_Gateway_Payleo extends WC_Payment_Gateway {
 	 * @param int $order_id Order ID.
 	 * @return array
 	 */
-	public function process_payment( $order_id ) {
+	public function process_payment( $order_id ) {//var_dump('process_payment', debug_backtrace(false));exit;
 		$order = wc_get_order( $order_id );
 
 		if ( $order->get_total() > 0 ) {
@@ -325,7 +514,7 @@ class WC_Gateway_Payleo extends WC_Payment_Gateway {
 	}
 
 	private function payleo_payment_processing( $order ) {
-
+//var_dump(WC()->cart->get_cart());exit;
 		$total = intval( $order->get_total() );
         $currencyCode = get_option( 'woocommerce_currency' );
 
@@ -341,9 +530,8 @@ class WC_Gateway_Payleo extends WC_Payment_Gateway {
         }//var_dump('$products',$products);exit;
 
 		//$url = 'https://e.patasente.com/phantom-api/pay-with-patasente/' . $this->api_key . '/' . $this->widget_id . '?phone=' . $phone . '&amount=' . $total . '&mobile_money_company_id=' . $network_id . '&reason=' . 'Payment for Order: ' .$order_id;
-        $url = 'http://devkqtest.eastus2.cloudapp.azure.com/KXPaymentTR/HostedService.svc/CreateOrder';
 		/** send payment gateway RXTR**/
-
+        /*$url = 'http://devkqtest.eastus2.cloudapp.azure.com/KXPaymentTR/HostedService.svc/CreateOrder';
         $credentials = "{6D8B0B7B-2953-41E1-A95F-AFA8795605A5}{FDACC33B-AE00-4DED-B208-D17BDEB85BC6}";
         $data = array(
                 'Amount'                => $total*100,
@@ -374,38 +562,72 @@ class WC_Gateway_Payleo extends WC_Payment_Gateway {
         curl_close($s);
 
         $res = json_decode($_out);
+        $this->response = $res;*/
 		/** send payment gateway RXTR**/
 
 		//var_dump($url);
 
 		//$response = wp_remote_post( $url, array( 'timeout' => 45 ) );
 
-		if ( $res->message != null) {
+		/*if ( $res->message != null) {
 			$error_message = $res->message;
 			return "Algo salio Mal: $error_message";
-		}
+		}*/
 
-		if ( 200 !== $status ) {
+		/*if ( 200 !== $status ) {
 			$order->update_status( apply_filters( 'woocommerce_payleo_process_payment_order_status', $order->has_downloadable_item() ? 'wc-invoiced' : 'processing', $order ), __( 'Payments pending.', 'payleo-payments-woo' ) );
-		}
+		}*/
 		//var_dump('respuesta', $res, $status,$res->message);exit;
-		if ( 200 === $status ) {
+		//if ( 200 === $status ) {
 
             $order->payment_complete();
-            ?>
 
-            <?php
 
+			//wp_register_script( 'custom-ajax-requests', plugins_url( '../assets/js/custom-ajax-requests.js', __FILE__ ), array('jquery'), '1.0', true );
+			//wp_localize_script( 'custom-ajax-requests', 'wc_ppec_context', $this->response );
+			//do_action( 'woocommerce_review_order_after_submit');
             // Remove cart.
-            WC()->cart->empty_cart();
-
+            //WC()->cart->empty_cart();
+			//var_dump('respuesta', $this->get_return_url( $order ), $order);exit;
+			//var_dump('respuesta', $status,$this->response->item->back_url);exit;
             // Return thankyou redirect.
+            //$this->show_modal_for_payment();
             return array(
                 'result'   => 'success',
                 'redirect' => $this->get_return_url( $order ),
             );
+			//var_dump('respuesta', $this->response->item->back_url, $this->get_return_url( $order ));
+			//return $this->get_return_url( $order );
 
-		}
+			/*echo json_encode(array(
+				'result'   => 'success',
+				'redirect' => $this->get_return_url( $order ),
+			));
+			wp_redirect( $this->get_return_url( $order ),301);*/
+
+		//}
+	}
+
+	function show_modal_for_payment(){
+		//var_dump('show_modal_for_payment',$this->response);Exit;
+		echo '
+			<div class="modal" tabindex="2" role="dialog" id="modal-results">
+				<div class="modal-dialog" role="document">
+					<div class="modal-content">
+						<div class="modal-body">
+							<iframe id="iframe-container" class="iframe-container"
+									src="'.$this->response->item->back_url.'"
+									height="400" width="800">
+							</iframe>
+							<p id="message-error" style="display: none;"></p>
+						</div>
+						<div class="modal-footer">
+							<button type="button" class="btn btn-primary" data-dismiss="modal">Aceptar</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		';
 	}
 
 	/**
